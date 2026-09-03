@@ -19,60 +19,30 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
-
 # ============================================================
 # PATHS
-# Works on:
-# 1. Local VS Code structure
-# 2. Flat GitHub / Render structure
+# Works with both:
+# Local:  backend/main.py + frontend/ + data/
+# Render: main.py + index.html + app.html + chunks.pkl
 # ============================================================
 
-CURRENT_DIR = Path(__file__).resolve().parent
-PARENT_DIR = CURRENT_DIR.parent
+HERE = Path(__file__).resolve().parent
+PARENT = HERE.parent
 
-
-# Frontend
-if (CURRENT_DIR / "index.html").exists():
-    FRONTEND_DIR = CURRENT_DIR
-else:
-    FRONTEND_DIR = PARENT_DIR / "frontend"
-
-
-# Data
-if (CURRENT_DIR / "chunks.pkl").exists():
-    DATA_DIR = CURRENT_DIR
-else:
-    DATA_DIR = PARENT_DIR / "data"
-
-
-# Environment file
-if (CURRENT_DIR / ".env").exists():
-    ENV_PATH = CURRENT_DIR / ".env
-else:
-    ENV_PATH = PARENT_DIR / ".env"
-
-
+FRONTEND_DIR = HERE if (HERE / "index.html").exists() else PARENT / "frontend"
+DATA_DIR = HERE if (HERE / "chunks.pkl").exists() else PARENT / "data"
+ENV_PATH = HERE / ".env" if (HERE / ".env").exists() else PARENT / ".env"
 CHUNKS_PATH = DATA_DIR / "chunks.pkl"
 
-load_dotenv(
-    ENV_PATH,
-    override=True
-)
-
+# Render environment variables take priority.
+load_dotenv(ENV_PATH, override=False)
 
 # ============================================================
-# ENVIRONMENT VARIABLES
+# CONFIG
 # ============================================================
 
-SARVAM_API_KEY = os.getenv(
-    "SARVAM_API_KEY",
-    ""
-).strip()
-
-SARVAM_STT_MODEL = os.getenv(
-    "SARVAM_STT_MODEL",
-    "saaras:v3"
-).strip()
+SARVAM_API_KEY = os.getenv("SARVAM_API_KEY", "").strip()
+SARVAM_STT_MODEL = os.getenv("SARVAM_STT_MODEL", "saaras:v3").strip()
 
 SARVAM_CHAT_MODEL = os.getenv(
     "SARVAM_CHAT_MODEL",
@@ -80,39 +50,21 @@ SARVAM_CHAT_MODEL = os.getenv(
 ).strip()
 
 GROUNDING_THRESHOLD = float(
-    os.getenv(
-        "GROUNDING_THRESHOLD",
-        "0.18"
-    )
+    os.getenv("GROUNDING_THRESHOLD", "0.18")
 )
 
 MAX_RAG_CHUNKS = int(
-    os.getenv(
-        "MAX_RAG_CHUNKS",
-        "6000"
-    )
+    os.getenv("MAX_RAG_CHUNKS", "6000")
 )
 
-
-# ============================================================
-# SARVAM ENDPOINTS
-# ============================================================
-
-SARVAM_STT_URL = (
-    "https://api.sarvam.ai/speech-to-text"
-)
-
-SARVAM_CHAT_URL = (
-    "https://api.sarvam.ai/v1/chat/completions"
-)
-
-
-# ============================================================
-# LIGHTWEIGHT RAG
-# ============================================================
+SARVAM_STT_URL = "https://api.sarvam.ai/speech-to-text"
+SARVAM_CHAT_URL = "https://api.sarvam.ai/v1/chat/completions"
 
 VECTOR_DIM = 512
 
+# ============================================================
+# STATE
+# ============================================================
 
 class State:
     chunks: list[Any] = []
@@ -122,30 +74,19 @@ class State:
 
 state = State()
 
-
 # ============================================================
-# GET TEXT FROM CHUNK
+# LIGHTWEIGHT RAG
 # ============================================================
 
-def extract_text(
-    item: Any
-) -> str:
+def extract_text(item: Any) -> str:
 
-    if isinstance(
-        item,
-        str
-    ):
+    if isinstance(item, str):
         return item.strip()
 
-    if not isinstance(
-        item,
-        dict
-    ):
-        return str(
-            item
-        ).strip()
+    if not isinstance(item, dict):
+        return str(item).strip()
 
-    possible_keys = (
+    for key in (
         "text",
         "content",
         "chunk",
@@ -156,48 +97,27 @@ def extract_text(
         "query",
         "Eng_Query",
         "Eng_Answer",
-        "document",
-    )
+        "document"
+    ):
 
-    for key in possible_keys:
+        value = item.get(key)
 
-        value = item.get(
-            key
-        )
-
-        if (
-            isinstance(
-                value,
-                str
-            )
-            and
-            value.strip()
-        ):
+        if isinstance(value, str) and value.strip():
             return value.strip()
 
-    passages = item.get(
-        "passages"
-    )
+    passages = item.get("passages")
 
-    if isinstance(
-        passages,
-        dict
-    ):
+    if isinstance(passages, dict):
 
         for key in (
             "Translated_passages",
             "English_passages",
-            "passage_text",
+            "passage_text"
         ):
 
-            value = passages.get(
-                key
-            )
+            value = passages.get(key)
 
-            if isinstance(
-                value,
-                list
-            ):
+            if isinstance(value, list):
 
                 text = " ".join(
                     str(x).strip()
@@ -208,27 +128,13 @@ def extract_text(
                 if text:
                     return text
 
-            elif (
-                isinstance(
-                    value,
-                    str
-                )
-                and
-                value.strip()
-            ):
-
+            if isinstance(value, str) and value.strip():
                 return value.strip()
 
     return ""
 
 
-# ============================================================
-# TOKENIZER
-# ============================================================
-
-def tokenize(
-    text: str
-) -> list[str]:
+def tokenize(text: str) -> list[str]:
 
     words = re.findall(
         r"\w+",
@@ -239,39 +145,27 @@ def tokenize(
     if not words:
         return []
 
-    features = words[:]
+    features = list(words)
 
     features.extend(
         f"{words[i]}_{words[i + 1]}"
-        for i in range(
-            len(words) - 1
-        )
+        for i in range(len(words) - 1)
     )
 
     return features
 
 
-# ============================================================
-# LIGHTWEIGHT VECTOR
-# ============================================================
-
-def text_to_vector(
-    text: str
-) -> np.ndarray:
+def text_to_vector(text: str) -> np.ndarray:
 
     vector = np.zeros(
         VECTOR_DIM,
         dtype=np.float32
     )
 
-    for token in tokenize(
-        text
-    ):
+    for token in tokenize(text):
 
         digest = hashlib.blake2b(
-            token.encode(
-                "utf-8"
-            ),
+            token.encode("utf-8"),
             digest_size=8
         ).digest()
 
@@ -281,28 +175,18 @@ def text_to_vector(
             signed=False
         )
 
-        slot = (
-            number
-            %
-            VECTOR_DIM
-        )
+        slot = number % VECTOR_DIM
 
         sign = (
             1.0
-            if
-            ((number >> 8) & 1) == 0
-            else
-            -1.0
+            if ((number >> 8) & 1) == 0
+            else -1.0
         )
 
-        vector[
-            slot
-        ] += sign
+        vector[slot] += sign
 
     norm = float(
-        np.linalg.norm(
-            vector
-        )
+        np.linalg.norm(vector)
     )
 
     if norm > 0:
@@ -310,10 +194,6 @@ def text_to_vector(
 
     return vector
 
-
-# ============================================================
-# BUILD FAISS
-# ============================================================
 
 def build_rag_index() -> None:
 
@@ -324,393 +204,102 @@ def build_rag_index() -> None:
     if not CHUNKS_PATH.exists():
 
         print(
-            f"⚠️ chunks.pkl not found: "
-            f"{CHUNKS_PATH}"
+            f"WARNING: chunks.pkl not found at {CHUNKS_PATH}"
         )
 
         return
 
     print(
-        "Loading chunks.pkl..."
+        f"Loading chunks from {CHUNKS_PATH}"
     )
 
-    with open(
-        CHUNKS_PATH,
-        "rb"
-    ) as file:
+    with open(CHUNKS_PATH, "rb") as f:
+        raw_chunks = pickle.load(f)
 
-        raw_chunks = pickle.load(
-            file
-        )
+    if not isinstance(raw_chunks, list):
+        raw_chunks = list(raw_chunks)
 
-    if not isinstance(
-        raw_chunks,
-        list
-    ):
+    raw_chunks = raw_chunks[:MAX_RAG_CHUNKS]
 
-        raw_chunks = list(
-            raw_chunks
-        )
-
-    raw_chunks = raw_chunks[
-        :MAX_RAG_CHUNKS
-    ]
-
-    clean_chunks = []
-    clean_texts = []
-    vectors = []
+    clean_chunks: list[Any] = []
+    clean_texts: list[str] = []
+    vectors: list[np.ndarray] = []
 
     for item in raw_chunks:
 
-        text = extract_text(
-            item
-        )
+        text = extract_text(item)
 
         if not text:
             continue
 
-        vector = text_to_vector(
-            text
-        )
+        vec = text_to_vector(text)
 
-        if not np.any(
-            vector
-        ):
+        if not np.any(vec):
             continue
 
-        clean_chunks.append(
-            item
-        )
-
-        clean_texts.append(
-            text
-        )
-
-        vectors.append(
-            vector
-        )
+        clean_chunks.append(item)
+        clean_texts.append(text)
+        vectors.append(vec)
 
     if not vectors:
 
         print(
-            "⚠️ No usable RAG chunks."
+            "WARNING: no usable RAG chunks found."
         )
 
         return
 
     matrix = np.vstack(
         vectors
-    ).astype(
-        np.float32
-    )
+    ).astype(np.float32)
 
     index = faiss.IndexFlatIP(
         VECTOR_DIM
     )
 
-    index.add(
-        matrix
-    )
+    index.add(matrix)
 
-    state.chunks = (
-        clean_chunks
-    )
-
-    state.texts = (
-        clean_texts
-    )
-
-    state.index = (
-        index
-    )
+    state.chunks = clean_chunks
+    state.texts = clean_texts
+    state.index = index
 
     print(
-        f"✅ RAG READY: "
-        f"{index.ntotal} vectors"
+        f"RAG READY: {index.ntotal} vectors"
     )
 
-
-# ============================================================
-# STARTUP
-# ============================================================
-
-@asynccontextmanager
-async def lifespan(
-    app: FastAPI
-):
-
-    print()
-
-    print(
-        "=" * 60
-    )
-
-    print(
-        "HH GOA 2026 - LIGHTWEIGHT VOICE RAG"
-    )
-
-    print(
-        "=" * 60
-    )
-
-    try:
-
-        build_rag_index()
-
-    except Exception as error:
-
-        print(
-            "❌ RAG STARTUP ERROR:",
-            repr(
-                error
-            )
-        )
-
-    print(
-        "Sarvam API key loaded:",
-        "✅"
-        if SARVAM_API_KEY
-        else
-        "❌"
-    )
-
-    print(
-        "STT model:",
-        SARVAM_STT_MODEL
-    )
-
-    print(
-        "Chat model:",
-        SARVAM_CHAT_MODEL
-    )
-
-    print(
-        "=" * 60
-    )
-
-    print()
-
-    yield
-
-
-# ============================================================
-# APP
-# ============================================================
-
-app = FastAPI(
-    title=(
-        "HH Goa 2026 Voice RAG"
-    ),
-    version=(
-        "2.1-light"
-    ),
-    lifespan=lifespan
-)
-
-
-# ============================================================
-# FILE HELPER
-# ============================================================
-
-def require_file(
-    path: Path,
-    label: str
-) -> FileResponse:
-
-    if not path.exists():
-
-        raise HTTPException(
-            status_code=404,
-            detail=(
-                f"{label} not found."
-            )
-        )
-
-    return FileResponse(
-        path
-    )
-
-
-# ============================================================
-# HOME PAGE
-# ============================================================
-
-@app.get("/")
-def home():
-
-    return require_file(
-        FRONTEND_DIR
-        /
-        "index.html",
-        "index.html"
-    )
-
-
-# ============================================================
-# ASSISTANT PAGE
-# ============================================================
-
-@app.get("/app")
-def app_page():
-
-    return require_file(
-        FRONTEND_DIR
-        /
-        "app.html",
-        "app.html"
-    )
-
-
-# ============================================================
-# JAVASCRIPT
-# ============================================================
-
-@app.get("/script.js")
-def script():
-
-    path = (
-        FRONTEND_DIR
-        /
-        "script.js"
-    )
-
-    if not path.exists():
-
-        raise HTTPException(
-            status_code=404,
-            detail=(
-                "script.js not found."
-            )
-        )
-
-    return FileResponse(
-        path,
-        media_type=(
-            "application/javascript"
-        )
-    )
-
-
-# ============================================================
-# HEALTH
-# ============================================================
-
-@app.get("/api/health")
-def health():
-
-    vectors = (
-        int(
-            state.index.ntotal
-        )
-        if
-        state.index is not None
-        else
-        0
-    )
-
-    return {
-
-        "status":
-            "online",
-
-        "vectors":
-            vectors,
-
-        "chunks":
-            len(
-                state.chunks
-            ),
-
-        "rag_ready":
-            state.index is not None,
-
-        "sarvam_ready":
-            bool(
-                SARVAM_API_KEY
-            ),
-
-        "mode":
-            "Lightweight FAISS RAG",
-
-        "stt_model":
-            SARVAM_STT_MODEL,
-
-        "chat_model":
-            SARVAM_CHAT_MODEL
-    }
-
-
-# ============================================================
-# RETRIEVE
-# ============================================================
 
 def retrieve(
     question: str,
     top_k: int = 5
 ):
 
-    if (
-        state.index is None
-        or
-        not state.texts
-    ):
+    if state.index is None or not state.texts:
+        return [], 0.0, 0.0
 
-        return (
-            [],
-            0.0,
-            0.0
-        )
-
-    start = (
-        time.perf_counter()
-    )
+    started = time.perf_counter()
 
     query_vector = (
-        text_to_vector(
-            question
-        )
-        .reshape(
-            1,
-            -1
-        )
-        .astype(
-            np.float32
-        )
+        text_to_vector(question)
+        .reshape(1, -1)
+        .astype(np.float32)
     )
 
-    if not np.any(
-        query_vector
-    ):
-
-        return (
-            [],
-            0.0,
-            0.0
-        )
+    if not np.any(query_vector):
+        return [], 0.0, 0.0
 
     count = min(
         top_k,
-        int(
-            state.index.ntotal
-        )
+        int(state.index.ntotal)
     )
 
-    scores, ids = (
-        state.index.search(
-            query_vector,
-            count
-        )
+    scores, ids = state.index.search(
+        query_vector,
+        count
     )
 
     retrieval_ms = (
-        (
-            time.perf_counter()
-            -
-            start
-        )
-        *
-        1000
-    )
+        time.perf_counter() - started
+    ) * 1000
 
     hits = []
 
@@ -719,88 +308,149 @@ def retrieve(
         ids[0]
     ):
 
-        idx = int(
-            idx
-        )
+        idx = int(idx)
 
-        if (
-            idx < 0
-            or
-            idx >= len(
-                state.texts
-            )
-        ):
-
+        if idx < 0 or idx >= len(state.texts):
             continue
 
-        original = (
-            state.chunks[
-                idx
-            ]
-        )
+        original = state.chunks[idx]
+        text = state.texts[idx]
 
-        text = (
-            state.texts[
-                idx
-            ]
-        )
+        source = "MSMARCO-XI"
 
-        source = (
-            "MSMARCO-XI"
-        )
-
-        if isinstance(
-            original,
-            dict
-        ):
+        if isinstance(original, dict):
 
             source = str(
-                original.get(
-                    "source"
-                )
-                or
-                original.get(
-                    "strategy"
-                )
-                or
-                original.get(
-                    "target_lang"
-                )
-                or
-                "MSMARCO-XI"
+                original.get("source")
+                or original.get("strategy")
+                or original.get("target_lang")
+                or "MSMARCO-XI"
             )
 
         hits.append({
-
-            "text":
-                text,
-
-            "source":
-                source,
-
-            "score":
-                float(
-                    score
-                )
+            "text": text,
+            "source": source,
+            "score": float(score)
         })
 
     confidence = (
-        float(
-            hits[0][
-                "score"
-            ]
-        )
+        float(hits[0]["score"])
         if hits
-        else
-        0.0
+        else 0.0
     )
 
-    return (
-        hits,
-        confidence,
-        retrieval_ms
+    return hits, confidence, retrieval_ms
+
+# ============================================================
+# STARTUP
+# ============================================================
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+
+    print("=" * 60)
+    print("HH GOA 2026 - LIGHTWEIGHT VOICE RAG")
+    print("Frontend:", FRONTEND_DIR)
+    print("Data:", DATA_DIR)
+    print(
+        "Sarvam key loaded:",
+        "YES" if SARVAM_API_KEY else "NO"
+    )
+    print("STT model:", SARVAM_STT_MODEL)
+    print("Chat model:", SARVAM_CHAT_MODEL)
+
+    try:
+        build_rag_index()
+
+    except Exception as error:
+
+        print(
+            "RAG STARTUP ERROR:",
+            repr(error)
+        )
+
+    print("=" * 60)
+
+    yield
+
+
+app = FastAPI(
+    title="HH Goa 2026 Voice RAG",
+    version="3.0-light",
+    lifespan=lifespan
+)
+
+# ============================================================
+# FRONTEND
+# ============================================================
+
+@app.get("/")
+def home():
+
+    path = FRONTEND_DIR / "index.html"
+
+    if not path.exists():
+
+        raise HTTPException(
+            status_code=404,
+            detail="index.html not found."
+        )
+
+    return FileResponse(path)
+
+
+@app.get("/app")
+def app_page():
+
+    path = FRONTEND_DIR / "app.html"
+
+    if not path.exists():
+
+        raise HTTPException(
+            status_code=404,
+            detail="app.html not found."
+        )
+
+    return FileResponse(path)
+
+
+@app.get("/script.js")
+def script_file():
+
+    path = FRONTEND_DIR / "script.js"
+
+    if not path.exists():
+
+        raise HTTPException(
+            status_code=404,
+            detail="script.js not found."
+        )
+
+    return FileResponse(
+        path,
+        media_type="application/javascript"
     )
 
+
+@app.get("/api/health")
+def health():
+
+    vectors = (
+        int(state.index.ntotal)
+        if state.index is not None
+        else 0
+    )
+
+    return {
+        "status": "online",
+        "vectors": vectors,
+        "chunks": len(state.chunks),
+        "rag_ready": state.index is not None,
+        "sarvam_ready": bool(SARVAM_API_KEY),
+        "mode": "Lightweight FAISS RAG",
+        "stt_model": SARVAM_STT_MODEL,
+        "chat_model": SARVAM_CHAT_MODEL
+    }
 
 # ============================================================
 # SARVAM HEADERS
@@ -819,49 +469,38 @@ def sarvam_headers(
 
         headers[
             "Content-Type"
-        ] = (
-            "application/json"
-        )
+        ] = "application/json"
 
     return headers
 
-
 # ============================================================
-# SARVAM SPEECH TO TEXT
+# SARVAM STT
 # ============================================================
 
 def sarvam_transcribe(
     audio_bytes: bytes,
     filename: str,
     mime_type: str
-):
+) -> tuple[str, str]:
 
     if not SARVAM_API_KEY:
 
         raise HTTPException(
             status_code=503,
-            detail=(
-                "SARVAM_API_KEY "
-                "is missing."
-            )
+            detail="SARVAM_API_KEY is missing."
         )
 
     try:
 
         response = requests.post(
-
             SARVAM_STT_URL,
 
-            headers=(
-                sarvam_headers()
-            ),
+            headers=sarvam_headers(),
 
             files={
                 "file": (
                     filename,
-                    io.BytesIO(
-                        audio_bytes
-                    ),
+                    io.BytesIO(audio_bytes),
                     mime_type
                 )
             },
@@ -880,41 +519,37 @@ def sarvam_transcribe(
     except requests.RequestException as error:
 
         print(
-            "❌ SARVAM STT CONNECTION ERROR:",
-            repr(
-                error
-            )
+            "SARVAM STT CONNECTION ERROR:",
+            repr(error)
         )
 
         raise HTTPException(
             status_code=502,
             detail=(
-                "Could not connect "
-                "to Sarvam Speech-to-Text."
+                "Could not connect to "
+                "Sarvam Speech-to-Text."
             )
         ) from error
 
     if not response.ok:
 
         print(
-            f"❌ SARVAM STT ERROR "
+            f"SARVAM STT ERROR "
             f"{response.status_code}: "
-            f"{response.text[:1200]}"
+            f"{response.text[:1500]}"
         )
 
         raise HTTPException(
             status_code=502,
             detail=(
-                "Sarvam STT failed: "
+                f"Sarvam STT failed: "
                 f"{response.status_code}"
             )
         )
 
     try:
 
-        data = (
-            response.json()
-        )
+        data = response.json()
 
     except ValueError as error:
 
@@ -952,20 +587,16 @@ def sarvam_transcribe(
         )
 
     print(
-        "🎤 QUESTION:",
+        "QUESTION:",
         transcript
     )
 
     print(
-        "🌐 LANGUAGE:",
+        "LANGUAGE:",
         language
     )
 
-    return (
-        transcript,
-        language
-    )
-
+    return transcript, language
 
 # ============================================================
 # SARVAM CHAT
@@ -974,20 +605,19 @@ def sarvam_transcribe(
 def sarvam_chat(
     question: str,
     context: str,
-    history: list
-):
+    history: list[Any]
+) -> str:
 
     if not SARVAM_API_KEY:
 
         raise HTTPException(
             status_code=503,
-            detail=(
-                "SARVAM_API_KEY "
-                "is missing."
-            )
+            detail="SARVAM_API_KEY is missing."
         )
 
-    messages = [
+    messages: list[
+        dict[str, str]
+    ] = [
 
         {
             "role":
@@ -998,7 +628,7 @@ def sarvam_chat(
                     "You are HH Goa AI, a helpful "
                     "multilingual conversational assistant. "
 
-                    "Answer the user's real question clearly "
+                    "Answer the user's actual question clearly "
                     "and naturally. "
 
                     "You can answer general knowledge, "
@@ -1010,13 +640,13 @@ def sarvam_chat(
                     "Indian-language speech and Romanized text. "
 
                     "Reply in the user's language or style "
-                    "whenever practical. "
+                    "when practical. "
 
-                    "Optional RAG context may be supplied. "
+                    "Optional RAG context may be provided. "
                     "Use it only when relevant. "
 
-                    "If the RAG context is unrelated, ignore "
-                    "it and answer using general knowledge. "
+                    "If the context is unrelated, ignore it "
+                    "and answer using general knowledge. "
 
                     "Do not invent facts. "
                     "If uncertain, say so. "
@@ -1032,15 +662,12 @@ def sarvam_chat(
         list
     ):
 
-        for item in history[
-            -8:
-        ]:
+        for item in history[-8:]:
 
             if not isinstance(
                 item,
                 dict
             ):
-
                 continue
 
             role = str(
@@ -1058,8 +685,7 @@ def sarvam_chat(
             ).strip()
 
             if (
-                role
-                in {
+                role in {
                     "user",
                     "assistant"
                 }
@@ -1068,14 +694,11 @@ def sarvam_chat(
             ):
 
                 messages.append({
-
                     "role":
                         role,
 
                     "content":
-                        content[
-                            :3000
-                        ]
+                        content[:3000]
                 })
 
     if context:
@@ -1088,19 +711,16 @@ def sarvam_chat(
             f"RAG CONTEXT:\n"
             f"{context}\n\n"
 
-            "Answer the actual question. "
-            "Use the context only if "
+            "Answer the user's actual question. "
+            "Use the retrieved context only when "
             "it is relevant."
         )
 
     else:
 
-        user_message = (
-            question
-        )
+        user_message = question
 
     messages.append({
-
         "role":
             "user",
 
@@ -1111,13 +731,10 @@ def sarvam_chat(
     try:
 
         response = requests.post(
-
             SARVAM_CHAT_URL,
 
-            headers=(
-                sarvam_headers(
-                    json_request=True
-                )
+            headers=sarvam_headers(
+                json_request=True
             ),
 
             json={
@@ -1130,9 +747,6 @@ def sarvam_chat(
                 "temperature":
                     0.6,
 
-                "top_p":
-                    1,
-
                 "max_tokens":
                     600
             },
@@ -1143,10 +757,8 @@ def sarvam_chat(
     except requests.RequestException as error:
 
         print(
-            "❌ SARVAM CHAT CONNECTION ERROR:",
-            repr(
-                error
-            )
+            "SARVAM CHAT CONNECTION ERROR:",
+            repr(error)
         )
 
         raise HTTPException(
@@ -1160,24 +772,22 @@ def sarvam_chat(
     if not response.ok:
 
         print(
-            f"❌ SARVAM CHAT ERROR "
+            f"SARVAM CHAT ERROR "
             f"{response.status_code}: "
-            f"{response.text[:1200]}"
+            f"{response.text[:1500]}"
         )
 
         raise HTTPException(
             status_code=502,
             detail=(
-                "Sarvam AI failed: "
+                f"Sarvam AI failed: "
                 f"{response.status_code}"
             )
         )
 
     try:
 
-        data = (
-            response.json()
-        )
+        data = response.json()
 
         answer = str(
             data[
@@ -1197,10 +807,8 @@ def sarvam_chat(
     ) as error:
 
         print(
-            "❌ UNEXPECTED SARVAM RESPONSE:",
-            response.text[
-                :1200
-            ]
+            "UNEXPECTED SARVAM RESPONSE:",
+            response.text[:1500]
         )
 
         raise HTTPException(
@@ -1222,26 +830,21 @@ def sarvam_chat(
         )
 
     print(
-        "🤖 ANSWER:",
-        answer[
-            :500
-        ]
+        "ANSWER:",
+        answer[:500]
     )
 
     return answer
 
-
 # ============================================================
-# VOICE QUERY API
+# VOICE ENDPOINT
 # ============================================================
 
 @app.post(
     "/api/voice-query"
 )
 async def voice_query(
-
     file: UploadFile = File(...),
-
     history: str = Form("[]")
 ):
 
@@ -1249,16 +852,10 @@ async def voice_query(
         time.perf_counter()
     )
 
-    # --------------------------------------------------------
-    # Conversation history
-    # --------------------------------------------------------
-
     try:
 
-        history_data = (
-            json.loads(
-                history
-            )
+        history_data = json.loads(
+            history
         )
 
         if not isinstance(
@@ -1274,10 +871,6 @@ async def voice_query(
     ):
 
         history_data = []
-
-    # --------------------------------------------------------
-    # Audio
-    # --------------------------------------------------------
 
     audio_bytes = (
         await file.read()
@@ -1311,41 +904,27 @@ async def voice_query(
         .strip()
     )
 
-    # --------------------------------------------------------
-    # Speech -> Text
-    # --------------------------------------------------------
-
+    # Speech -> text
     stt_start = (
         time.perf_counter()
     )
 
     question, language = (
         await asyncio.to_thread(
-
             sarvam_transcribe,
-
             audio_bytes,
-
             filename,
-
             mime_type
         )
     )
 
     stt_ms = (
-        (
-            time.perf_counter()
-            -
-            stt_start
-        )
-        *
-        1000
-    )
+        time.perf_counter()
+        -
+        stt_start
+    ) * 1000
 
-    # --------------------------------------------------------
     # RAG retrieval
-    # --------------------------------------------------------
-
     hits, confidence, retrieval_ms = (
         retrieve(
             question,
@@ -1354,12 +933,9 @@ async def voice_query(
     )
 
     grounded = (
-        bool(
-            hits
-        )
+        bool(hits)
         and
-        confidence
-        >=
+        confidence >=
         GROUNDING_THRESHOLD
     )
 
@@ -1368,82 +944,55 @@ async def voice_query(
     if grounded:
 
         context = "\n\n".join(
-
             (
-                f"[Context {number}]\n"
+                f"[Context {n}]\n"
                 f"{hit['text'][:1000]}"
             )
 
-            for number, hit
-            in enumerate(
-                hits[
-                    :4
-                ],
+            for n, hit in enumerate(
+                hits[:4],
                 start=1
             )
         )
 
-    # --------------------------------------------------------
-    # AI response
-    # --------------------------------------------------------
-
+    # AI answer
     ai_start = (
         time.perf_counter()
     )
 
     answer = (
         await asyncio.to_thread(
-
             sarvam_chat,
-
             question,
-
             context,
-
             history_data
         )
     )
 
     ai_ms = (
-        (
-            time.perf_counter()
-            -
-            ai_start
-        )
-        *
-        1000
-    )
+        time.perf_counter()
+        -
+        ai_start
+    ) * 1000
 
     total_ms = (
-        (
-            time.perf_counter()
-            -
-            total_start
-        )
-        *
-        1000
-    )
-
-    # --------------------------------------------------------
-    # Sources
-    # --------------------------------------------------------
+        time.perf_counter()
+        -
+        total_start
+    ) * 1000
 
     sources = []
 
     if grounded:
 
-        for hit in hits[
-            :3
-        ]:
+        for hit in hits[:3]:
 
             sources.append({
 
                 "text":
                     hit[
                         "text"
-                    ][
-                        :400
-                    ],
+                    ][:400],
 
                 "score":
                     round(
@@ -1461,10 +1010,6 @@ async def voice_query(
                         "MSMARCO-XI"
                     )
             })
-
-    # --------------------------------------------------------
-    # Final response
-    # --------------------------------------------------------
 
     return {
 
@@ -1497,11 +1042,8 @@ async def voice_query(
         "mode":
             (
                 "FAISS RAG + Sarvam AI"
-
                 if grounded
-
                 else
-
                 "Sarvam AI"
             ),
 
@@ -1542,9 +1084,8 @@ async def voice_query(
             )
     }
 
-
 # ============================================================
-# RUN
+# LOCAL RUN
 # ============================================================
 
 if __name__ == "__main__":
