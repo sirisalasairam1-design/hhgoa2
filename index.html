@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>HH Goa 2026 — VoiceRAG</title>
+
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+
+            font-family: Arial, Helvetica, sans-serif;
+
+            color: #203963;
+
+            background:
+                radial-gradient(
+                    circle at 10% 15%,
+                    rgba(85, 205, 255, 0.35),
+                    transparent 30%
+                ),
+                radial-gradient(
+                    circle at 90% 20%,
+                    rgba(160, 130, 255, 0.28),
+                    transparent 30%
+                ),
+                linear-gradient(
+                    135deg,
+                    #effcff,
+                    #f7f9ff,
+                    #f1efff
+                );
+        }
+
+        .bubble {
+            position: fixed;
+            border-radius: 50%;
+            pointer-events: none;
+
+            border: 1px solid rgba(255,255,255,.95);
+
+            background:
+                radial-gradient(
+                    circle at 30% 25%,
+                    rgba(255,255,255,.95),
+                    rgba(130,215,255,.16) 42%,
+                    rgba(150,130,255,.08)
+                );
+
+            box-shadow:
+                inset 0 0 30px rgba(255,255,255,.65),
+                0 20px 60px rgba(60,100,170,.12);
+        }
+
+        .b1 {
+            width: 150px;
+            height: 150px;
+            left: 2%;
+            top: 8%;
+        }
+
+        .b2 {
+            width: 85px;
+            height: 85px;
+            right: 5%;
+            top: 12%;
+        }
+
+        .b3 {
+            width: 140px;
+            height: 140px;
+            right: 8%;
+            bottom: 8%;
+        }
+
+        .card {
+            width: min(820px, 92vw);
+            min-height: 760px;
+
+            padding: 60px 45px;
+
+            border-radius: 48px;
+
+            background: rgba(255,255,255,.74);
+            border: 1px solid rgba(255,255,255,.95);
+
+            backdrop-filter: blur(26px);
+
+            box-shadow:
+                0 35px 100px rgba(50,80,150,.14);
+
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+
+            text-align: center;
+
+            position: relative;
+            z-index: 2;
+        }
+
+        .logo {
+            width: 105px;
+            height: 105px;
+
+            display: grid;
+            place-items: center;
+
+            border-radius: 30px;
+
+            background:
+                linear-gradient(
+                    135deg,
+                    #5271ff,
+                    #66b7ff
+                );
+
+            color: white;
+
+            font-size: 31px;
+            font-weight: 900;
+
+            transform: rotate(-4deg);
+
+            box-shadow:
+                0 20px 45px rgba(75,105,255,.22);
+
+            margin-bottom: 32px;
+        }
+
+        .eyebrow {
+            font-size: 14px;
+            letter-spacing: 7px;
+            font-weight: 800;
+
+            color: #607ecc;
+
+            margin-bottom: 28px;
+        }
+
+        h1 {
+            font-size: clamp(58px, 7vw, 84px);
+            line-height: .98;
+            letter-spacing: -5px;
+
+            margin-bottom: 28px;
+        }
+
+        h1 span {
+            display: block;
+            color: #5270ff;
+        }
+
+        .desc {
+            max-width: 650px;
+
+            font-size: 18px;
+            line-height: 1.7;
+
+            color: #7891b6;
+
+            margin-bottom: 38px;
+        }
+
+        .pipeline {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-wrap: wrap;
+
+            gap: 12px;
+
+            margin-bottom: 42px;
+        }
+
+        .chip {
+            padding: 12px 18px;
+
+            border-radius: 17px;
+
+            background: rgba(235,247,255,.9);
+
+            color: #617aa1;
+
+            font-size: 14px;
+        }
+
+        .arrow {
+            color: #6782aa;
+        }
+
+        .enter {
+            min-width: 255px;
+
+            padding: 20px 34px;
+
+            border-radius: 22px;
+
+            border: none;
+
+            cursor: pointer;
+
+            color: white;
+
+            font-size: 17px;
+            font-weight: 800;
+
+            background:
+                linear-gradient(
+                    135deg,
+                    #5270ff,
+                    #68b8ff
+                );
+
+            box-shadow:
+                0 20px 45px rgba(70,105,255,.25);
+
+            transition:
+                transform .2s ease,
+                box-shadow .2s ease;
+        }
+
+        .enter:hover {
+            transform: translateY(-3px);
+
+            box-shadow:
+                0 26px 55px rgba(70,105,255,.32);
+        }
+
+        .team {
+            margin-top: 36px;
+
+            font-size: 13px;
+
+            color: #8193af;
+        }
+
+        .team strong {
+            color: #486386;
+        }
+
+        @media(max-width: 700px) {
+            .card {
+                min-height: 650px;
+                padding: 35px 20px;
+                border-radius: 34px;
+            }
+
+            h1 {
+                letter-spacing: -3px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="bubble b1"></div>
+    <div class="bubble b2"></div>
+    <div class="bubble b3"></div>
+
+    <main class="card">
+
+        <div class="logo">
+            HH
+        </div>
+
+        <div class="eyebrow">
+            HH GOA 2026
+        </div>
+
+        <h1>
+            Welcome to
+            <span>VoiceRAG</span>
+        </h1>
+
+        <p class="desc">
+            Speak naturally. Retrieve intelligently.
+            Get multilingual answers powered by speech,
+            vector retrieval and AI.
+        </p>
+
+        <div class="pipeline">
+
+            <div class="chip">
+                🎙 Voice
+            </div>
+
+            <span class="arrow">→</span>
+
+            <div class="chip">
+                STT
+            </div>
+
+            <span class="arrow">→</span>
+
+            <div class="chip">
+                RAG
+            </div>
+
+            <span class="arrow">→</span>
+
+            <div class="chip">
+                AI Answer
+            </div>
+
+        </div>
+
+        <button
+            class="enter"
+            type="button"
+            onclick="window.location.href='/app'"
+        >
+            Enter Experience →
+        </button>
+
+        <div class="team">
+
+            Built by
+
+            <strong>
+                Sirisala Sairamteja
+            </strong>
+
+            &amp;
+
+            <strong>
+                Singirikonda Sai Santosh
+            </strong>
+
+        </div>
+
+    </main>
+
+</body>
+</html>
